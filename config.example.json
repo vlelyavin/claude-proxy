@@ -1,0 +1,41 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 18801
+  },
+  "upstream": {
+    "baseUrl": "https://api.anthropic.com",
+    "timeoutMs": 45000,
+    "maxAttempts": 3,
+    "retryBaseDelayMs": 250,
+    "retryMaxDelayMs": 1500,
+    "retryOnStatuses": [429, 500, 502, 503, 504],
+    "requiredBetas": [
+      "claude-code-20250219",
+      "oauth-2025-04-20",
+      "interleaved-thinking-2025-05-14",
+      "context-management-2025-06-27",
+      "prompt-caching-scope-2026-01-05",
+      "effort-2025-11-24"
+    ]
+  },
+  "credentials": {
+    "path": "~/.claude/.credentials.json",
+    "searchPaths": [
+      "~/.claude/.credentials.json",
+      "~/.claude/credentials.json"
+    ]
+  },
+  "rewrite": {
+    "systemPreamble": {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.80.a46; cc_entrypoint=sdk-cli; cch=00000;"
+    },
+    "outboundRules": [],
+    "inboundRules": []
+  },
+  "service": {
+    "maxBodyBytes": 5242880,
+    "logLevel": "info"
+  }
+}

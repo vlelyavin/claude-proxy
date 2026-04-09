@@ -1,0 +1,32 @@
+{
+  "name": "claude-proxy",
+  "version": "0.1.0",
+  "description": "Local relay that lets Claude-compatible tooling use Claude subscription auth",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/vlelyavin/claude-proxy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vlelyavin/claude-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vlelyavin/claude-proxy/issues"
+  },
+  "keywords": [
+    "claude",
+    "oauth",
+    "proxy",
+    "openclaw",
+    "sse",
+    "relay"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test",
+    "health": "curl -sS http://127.0.0.1:18801/health"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

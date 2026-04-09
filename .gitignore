@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+*.log
+.DS_Store
+config.json
+config.smoke.json
+SESSION_REPORT_*.md
+docs/plans/
+.env
+.env.*
