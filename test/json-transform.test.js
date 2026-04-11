@@ -50,3 +50,24 @@ test('rewriteInboundJson restores original values in structured JSON', () => {
   const parsed = JSON.parse(rewriteInboundJson(raw, rewriteConfig));
   assert.equal(parsed.delta.text, 'OpenClaw will call sessions_spawn');
 });
+
+test('rewriteOutboundJson sanitizes high-risk long system prompts', () => {
+  const raw = JSON.stringify({
+    system: [
+      {
+        type: 'text',
+        text: '# Claude Code Persona\n\nYou have persistent memory across sessions.\nIf you\'ve discovered a new way to do something, solved a problem that could be necessary later, save it as a skill with the skill tool.',
+      },
+    ],
+    messages: [{ role: 'user', content: 'ping' }],
+  });
+
+  const parsed = JSON.parse(rewriteOutboundJson(raw, rewriteConfig));
+  assert.deepEqual(parsed.system, [
+    { type: 'text', text: 'billing-header' },
+    {
+      type: 'text',
+      text: 'Be a direct, capable technical assistant. Match the user\'s language, prefer concrete action, use available tools when needed, and keep replies concise and grounded.',
+    },
+  ]);
+});
