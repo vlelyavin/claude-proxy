@@ -35,6 +35,11 @@ async function readRequestBody(request, limit) {
 }
 
 function sendJson(response, statusCode, payload) {
+  if (response.headersSent || response.writableEnded || response.destroyed) {
+    response.destroy();
+    return;
+  }
+
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -125,23 +130,31 @@ export function createServer({ config, credentialStore, upstreamClient, logger =
       const contentType = upstreamResponse.headers.get('content-type') ?? '';
       const isEventStream = contentType.includes('text/event-stream');
 
-      response.statusCode = upstreamResponse.status;
-      copyHeaders(upstreamResponse.headers, response, { streaming: isEventStream });
-
       if (request.method === 'HEAD') {
+        response.statusCode = upstreamResponse.status;
+        copyHeaders(upstreamResponse.headers, response, { streaming: false });
         response.end();
         return;
       }
 
       if (isEventStream) {
+        response.statusCode = upstreamResponse.status;
+        copyHeaders(upstreamResponse.headers, response, { streaming: true });
         const source = upstreamResponse.body ? Readable.fromWeb(upstreamResponse.body) : Readable.from([]);
         const transform = createSseTransform({ inboundRules: config.rewrite.inboundRules });
         await pipelineAsync(source, transform, response);
         return;
       }
 
-      const rawBody = await upstreamResponse.text();
+      let rawBody;
+      try {
+        rawBody = await upstreamResponse.text();
+      } catch (error) {
+        throw new UpstreamClientError(`Upstream response body read failed: ${error.message}`, { cause: error });
+      }
       const rewrittenBody = rewriteInboundText(rawBody, contentType, config.rewrite, logger);
+      response.statusCode = upstreamResponse.status;
+      copyHeaders(upstreamResponse.headers, response, { streaming: false });
       response.setHeader('content-length', Buffer.byteLength(rewrittenBody));
       response.end(rewrittenBody);
     } catch (error) {

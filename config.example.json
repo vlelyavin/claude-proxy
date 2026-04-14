@@ -5,8 +5,8 @@
   },
   "upstream": {
     "baseUrl": "https://api.anthropic.com",
-    "timeoutMs": 45000,
-    "maxAttempts": 3,
+    "timeoutMs": 600000,
+    "maxAttempts": 1,
     "retryBaseDelayMs": 250,
     "retryMaxDelayMs": 1500,
     "retryOnStatuses": [429, 500, 502, 503, 504],

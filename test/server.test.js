@@ -206,3 +206,34 @@ test('proxy converts upstream client failures into 502 responses', async (t) => 
   const payload = await response.json();
   assert.match(payload.error.message, /boom/);
 });
+
+test('proxy converts upstream body-read timeouts into 502 responses without crashing', async (t) => {
+  const harness = await startServer({
+    upstreamClient: {
+      async request() {
+        return {
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          async text() {
+            throw new Error('The operation was aborted due to timeout');
+          },
+        };
+      },
+    },
+  });
+  t.after(async () => {
+    await harness.close();
+  });
+
+  const response = await fetch(`${harness.origin}/v1/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'OpenClaw' }] }),
+  });
+
+  assert.equal(response.status, 502);
+  const payload = await response.json();
+  assert.match(payload.error.message, /Upstream response body read failed/);
+
+  const health = await fetch(`${harness.origin}/health`);
+  assert.equal(health.status, 200);
+});
