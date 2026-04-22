@@ -85,13 +85,13 @@ openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"
 ```
 
 Important note for subscription-backed Anthropic usage:
-- OpenClaw's `tools.profile=full` can still trip Anthropic's `You're out of extra usage` rejection even when the proxy is working correctly.
-- On this VPS, the embedded OpenClaw agent worked reliably through the proxy with `tools.profile=minimal`.
+- The proxy now rewrites a small set of tool names on the wire for Claude subscription compatibility and restores the original names on the way back.
+- On this VPS, OpenClaw's embedded agent was verified end-to-end through the proxy with `tools.profile=full` after that compatibility rewrite.
 
-Set that like this:
+If you previously forced the minimal profile as a workaround, switch back like this:
 
 ```bash
-openclaw config set tools.profile '"minimal"' --strict-json
+openclaw config set tools.profile '"full"' --strict-json
 ```
 
 Quick smoke test:
@@ -104,12 +104,12 @@ openclaw infer model run \
   --json
 ```
 
-Known-good result on this host with `tools.profile=minimal`:
+Known-good result on this host with `tools.profile=full`:
 - request succeeds through the proxy
 - the Anthropic response comes back normally
 - no `extra usage` bounce
 
-If you need more than the minimal profile, add tools back gradually and re-test instead of jumping straight to the heaviest profile.
+If you still hit an `extra usage` bounce in a different client build, update to the latest proxy version first so the compatibility rewrite is in place before you start cutting tools.
 
 ### Hermes
 

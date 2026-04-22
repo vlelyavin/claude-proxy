@@ -10,7 +10,11 @@ function rewriteDataPayload(payload, inboundRules) {
 
   try {
     const parsed = JSON.parse(payload);
-    const restoredToolNamesPayload = rewritePayloadToolNames(parsed, TOOL_NAME_REWRITE_RULES.inbound);
+    const restoredToolNamesPayload = rewritePayloadToolNames(
+      parsed,
+      TOOL_NAME_REWRITE_RULES.inbound.exact,
+      TOOL_NAME_REWRITE_RULES.inbound.prefix,
+    );
     return JSON.stringify(applyRulesDeep(restoredToolNamesPayload, inboundRules));
   } catch {
     return applyRulesToString(payload, inboundRules);

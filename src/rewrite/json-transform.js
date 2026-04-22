@@ -9,15 +9,24 @@ const HIGH_RISK_SYSTEM_PREFIXES = [
   '# Claude Code Persona',
 ];
 
-const PROXY_MCP_TOOL_PREFIX = '__hermes_proxy_mcp__';
+const CLAUDE_CODE_MCP_TOOL_PREFIX = '__cc_mcp__';
 
 const OUTBOUND_TOOL_NAME_PREFIX_REWRITES = [
-  ['mcp_', PROXY_MCP_TOOL_PREFIX],
+  ['mcp_', CLAUDE_CODE_MCP_TOOL_PREFIX],
 ];
 
 const INBOUND_TOOL_NAME_PREFIX_REWRITES = [
-  [PROXY_MCP_TOOL_PREFIX, 'mcp_'],
+  [CLAUDE_CODE_MCP_TOOL_PREFIX, 'mcp_'],
 ];
+
+const OUTBOUND_TOOL_NAME_EXACT_REWRITES = new Map([
+  ['memory_search', 'cc_search_memory'],
+  ['memory_get', 'cc_read_memory'],
+]);
+
+const INBOUND_TOOL_NAME_EXACT_REWRITES = new Map(
+  Array.from(OUTBOUND_TOOL_NAME_EXACT_REWRITES, ([fromName, toName]) => [toName, fromName]),
+);
 
 const SANITIZED_SYSTEM_SUMMARY = {
   type: 'text',
@@ -62,11 +71,17 @@ function sanitizeSystemPayload(payload) {
   return nextPayload;
 }
 
-function rewriteToolNamePrefix(name, rules) {
+function rewriteToolName(name, exactRules = new Map(), prefixRules = []) {
   if (typeof name !== 'string') {
     return name;
   }
-  for (const [fromPrefix, toPrefix] of rules) {
+
+  const exactMatch = exactRules.get(name);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  for (const [fromPrefix, toPrefix] of prefixRules) {
     if (name.startsWith(fromPrefix)) {
       return `${toPrefix}${name.slice(fromPrefix.length)}`;
     }
@@ -74,7 +89,7 @@ function rewriteToolNamePrefix(name, rules) {
   return name;
 }
 
-function rewriteToolUseBlock(block, rules) {
+function rewriteToolUseBlock(block, exactRules, prefixRules) {
   if (!block || typeof block !== 'object') {
     return block;
   }
@@ -83,11 +98,11 @@ function rewriteToolUseBlock(block, rules) {
   }
   return {
     ...block,
-    name: rewriteToolNamePrefix(block.name, rules),
+    name: rewriteToolName(block.name, exactRules, prefixRules),
   };
 }
 
-function rewriteMessageToolNames(message, rules) {
+function rewriteMessageToolNames(message, exactRules, prefixRules) {
   if (!message || typeof message !== 'object') {
     return message;
   }
@@ -96,11 +111,11 @@ function rewriteMessageToolNames(message, rules) {
   }
   return {
     ...message,
-    content: message.content.map((block) => rewriteToolUseBlock(block, rules)),
+    content: message.content.map((block) => rewriteToolUseBlock(block, exactRules, prefixRules)),
   };
 }
 
-export function rewritePayloadToolNames(payload, rules) {
+export function rewritePayloadToolNames(payload, exactRules = new Map(), prefixRules = []) {
   const nextPayload = { ...payload };
 
   if (Array.isArray(nextPayload.tools)) {
@@ -110,7 +125,7 @@ export function rewritePayloadToolNames(payload, rules) {
       }
       return {
         ...tool,
-        name: rewriteToolNamePrefix(tool.name, rules),
+        name: rewriteToolName(tool.name, exactRules, prefixRules),
       };
     });
   }
@@ -118,20 +133,20 @@ export function rewritePayloadToolNames(payload, rules) {
   if (nextPayload.tool_choice && typeof nextPayload.tool_choice === 'object' && typeof nextPayload.tool_choice.name === 'string') {
     nextPayload.tool_choice = {
       ...nextPayload.tool_choice,
-      name: rewriteToolNamePrefix(nextPayload.tool_choice.name, rules),
+      name: rewriteToolName(nextPayload.tool_choice.name, exactRules, prefixRules),
     };
   }
 
   if (Array.isArray(nextPayload.messages)) {
-    nextPayload.messages = nextPayload.messages.map((message) => rewriteMessageToolNames(message, rules));
+    nextPayload.messages = nextPayload.messages.map((message) => rewriteMessageToolNames(message, exactRules, prefixRules));
   }
 
   if (Array.isArray(nextPayload.content)) {
-    nextPayload.content = nextPayload.content.map((block) => rewriteToolUseBlock(block, rules));
+    nextPayload.content = nextPayload.content.map((block) => rewriteToolUseBlock(block, exactRules, prefixRules));
   }
 
   if (nextPayload.content_block && typeof nextPayload.content_block === 'object') {
-    nextPayload.content_block = rewriteToolUseBlock(nextPayload.content_block, rules);
+    nextPayload.content_block = rewriteToolUseBlock(nextPayload.content_block, exactRules, prefixRules);
   }
 
   return nextPayload;
@@ -164,17 +179,23 @@ export function rewriteOutboundJson(rawBody, rewriteConfig) {
   const payload = JSON.parse(rawBody);
   const rewrittenPayload = applyRulesDeep(payload, rewriteConfig.outboundRules);
   const sanitizedPayload = sanitizeSystemPayload(rewrittenPayload);
-  const toolSafePayload = rewritePayloadToolNames(sanitizedPayload, OUTBOUND_TOOL_NAME_PREFIX_REWRITES);
+  const toolSafePayload = rewritePayloadToolNames(sanitizedPayload, OUTBOUND_TOOL_NAME_EXACT_REWRITES, OUTBOUND_TOOL_NAME_PREFIX_REWRITES);
   return JSON.stringify(injectSystemPreamble(toolSafePayload, rewriteConfig.systemPreamble));
 }
 
 export function rewriteInboundJson(rawBody, rewriteConfig) {
   const payload = JSON.parse(rawBody);
-  const restoredToolNamesPayload = rewritePayloadToolNames(payload, INBOUND_TOOL_NAME_PREFIX_REWRITES);
+  const restoredToolNamesPayload = rewritePayloadToolNames(payload, INBOUND_TOOL_NAME_EXACT_REWRITES, INBOUND_TOOL_NAME_PREFIX_REWRITES);
   return JSON.stringify(applyRulesDeep(restoredToolNamesPayload, rewriteConfig.inboundRules));
 }
 
 export const TOOL_NAME_REWRITE_RULES = {
-  outbound: OUTBOUND_TOOL_NAME_PREFIX_REWRITES,
-  inbound: INBOUND_TOOL_NAME_PREFIX_REWRITES,
+  outbound: {
+    exact: OUTBOUND_TOOL_NAME_EXACT_REWRITES,
+    prefix: OUTBOUND_TOOL_NAME_PREFIX_REWRITES,
+  },
+  inbound: {
+    exact: INBOUND_TOOL_NAME_EXACT_REWRITES,
+    prefix: INBOUND_TOOL_NAME_PREFIX_REWRITES,
+  },
 };

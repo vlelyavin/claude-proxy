@@ -106,11 +106,56 @@ test('rewriteOutboundJson rewrites mcp tool names without touching normal text',
   });
 
   const parsed = JSON.parse(rewriteOutboundJson(raw, rewriteConfig));
-  assert.equal(parsed.tools[0].name, '__hermes_proxy_mcp__browser_back');
-  assert.equal(parsed.tool_choice.name, '__hermes_proxy_mcp__browser_back');
-  assert.equal(parsed.messages[0].content[0].name, '__hermes_proxy_mcp__browser_back');
+  assert.equal(parsed.tools[0].name, '__cc_mcp__browser_back');
+  assert.equal(parsed.tool_choice.name, '__cc_mcp__browser_back');
+  assert.equal(parsed.messages[0].content[0].name, '__cc_mcp__browser_back');
   assert.equal(parsed.tools[0].description, 'Use mcp_browser_back to go back.');
   assert.equal(parsed.messages[0].content[1].text, 'mcp_browser_back should stay visible in plain text.');
+});
+
+test('rewriteOutboundJson rewrites OpenClaw memory tool names without touching plain text mentions', () => {
+  const raw = JSON.stringify({
+    tools: [
+      {
+        name: 'memory_search',
+        description: 'Search memory before answering.',
+        input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+      },
+      {
+        name: 'memory_get',
+        description: 'Read exact memory excerpt.',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+    ],
+    tool_choice: {
+      type: 'tool',
+      name: 'memory_search',
+    },
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_memory',
+            name: 'memory_get',
+            input: { path: 'MEMORY.md' },
+          },
+          {
+            type: 'text',
+            text: 'memory_get and memory_search should stay literal in plain text.',
+          },
+        ],
+      },
+    ],
+  });
+
+  const parsed = JSON.parse(rewriteOutboundJson(raw, rewriteConfig));
+  assert.equal(parsed.tools[0].name, 'cc_search_memory');
+  assert.equal(parsed.tools[1].name, 'cc_read_memory');
+  assert.equal(parsed.tool_choice.name, 'cc_search_memory');
+  assert.equal(parsed.messages[0].content[0].name, 'cc_read_memory');
+  assert.equal(parsed.messages[0].content[1].text, 'memory_get and memory_search should stay literal in plain text.');
 });
 
 test('rewriteInboundJson restores rewritten tool_use names', () => {
@@ -120,17 +165,46 @@ test('rewriteInboundJson restores rewritten tool_use names', () => {
       {
         type: 'tool_use',
         id: 'toolu_123',
-        name: '__hermes_proxy_mcp__browser_back',
+        name: '__cc_mcp__browser_back',
         input: {},
       },
       {
         type: 'text',
-        text: '__hermes_proxy_mcp__browser_back should stay literal in plain text.',
+        text: '__cc_mcp__browser_back should stay literal in plain text.',
       },
     ],
   });
 
   const parsed = JSON.parse(rewriteInboundJson(raw, rewriteConfig));
   assert.equal(parsed.content[0].name, 'mcp_browser_back');
-  assert.equal(parsed.content[1].text, '__hermes_proxy_mcp__browser_back should stay literal in plain text.');
+  assert.equal(parsed.content[1].text, '__cc_mcp__browser_back should stay literal in plain text.');
+});
+
+test('rewriteInboundJson restores rewritten memory tool names', () => {
+  const raw = JSON.stringify({
+    type: 'message',
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_memory_get',
+        name: 'cc_read_memory',
+        input: { path: 'MEMORY.md' },
+      },
+      {
+        type: 'tool_use',
+        id: 'toolu_memory_search',
+        name: 'cc_search_memory',
+        input: { query: 'preferences' },
+      },
+      {
+        type: 'text',
+        text: 'cc_read_memory should stay literal in plain text.',
+      },
+    ],
+  });
+
+  const parsed = JSON.parse(rewriteInboundJson(raw, rewriteConfig));
+  assert.equal(parsed.content[0].name, 'memory_get');
+  assert.equal(parsed.content[1].name, 'memory_search');
+  assert.equal(parsed.content[2].text, 'cc_read_memory should stay literal in plain text.');
 });
