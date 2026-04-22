@@ -71,3 +71,66 @@ test('rewriteOutboundJson sanitizes high-risk long system prompts', () => {
     },
   ]);
 });
+
+test('rewriteOutboundJson rewrites mcp tool names without touching normal text', () => {
+  const raw = JSON.stringify({
+    system: [{ type: 'text', text: 'OpenClaw control plane' }],
+    tools: [
+      {
+        name: 'mcp_browser_back',
+        description: 'Use mcp_browser_back to go back.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+    ],
+    tool_choice: {
+      type: 'tool',
+      name: 'mcp_browser_back',
+    },
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_123',
+            name: 'mcp_browser_back',
+            input: {},
+          },
+          {
+            type: 'text',
+            text: 'mcp_browser_back should stay visible in plain text.',
+          },
+        ],
+      },
+    ],
+  });
+
+  const parsed = JSON.parse(rewriteOutboundJson(raw, rewriteConfig));
+  assert.equal(parsed.tools[0].name, '__hermes_proxy_mcp__browser_back');
+  assert.equal(parsed.tool_choice.name, '__hermes_proxy_mcp__browser_back');
+  assert.equal(parsed.messages[0].content[0].name, '__hermes_proxy_mcp__browser_back');
+  assert.equal(parsed.tools[0].description, 'Use mcp_browser_back to go back.');
+  assert.equal(parsed.messages[0].content[1].text, 'mcp_browser_back should stay visible in plain text.');
+});
+
+test('rewriteInboundJson restores rewritten tool_use names', () => {
+  const raw = JSON.stringify({
+    type: 'message',
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_123',
+        name: '__hermes_proxy_mcp__browser_back',
+        input: {},
+      },
+      {
+        type: 'text',
+        text: '__hermes_proxy_mcp__browser_back should stay literal in plain text.',
+      },
+    ],
+  });
+
+  const parsed = JSON.parse(rewriteInboundJson(raw, rewriteConfig));
+  assert.equal(parsed.content[0].name, 'mcp_browser_back');
+  assert.equal(parsed.content[1].text, '__hermes_proxy_mcp__browser_back should stay literal in plain text.');
+});

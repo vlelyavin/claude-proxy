@@ -48,3 +48,16 @@ test('createSseTransform handles chunk boundaries inside a data line', async () 
   const output = await readAll(source.pipe(transform));
   assert.match(output, /OpenClaw sessions_spawn/);
 });
+
+test('createSseTransform restores rewritten tool_use names in JSON events', async () => {
+  const source = Readable.from([
+    'event: content_block_start\n',
+    'data: {"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_123","name":"__hermes_proxy_mcp__browser_back","input":{}}}\n\n',
+  ]);
+
+  const transform = createSseTransform({ inboundRules: [] });
+  const output = await readAll(source.pipe(transform));
+
+  assert.match(output, /"name":"mcp_browser_back"/);
+  assert.doesNotMatch(output, /__hermes_proxy_mcp__browser_back/);
+});

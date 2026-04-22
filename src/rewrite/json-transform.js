@@ -9,6 +9,16 @@ const HIGH_RISK_SYSTEM_PREFIXES = [
   '# Claude Code Persona',
 ];
 
+const PROXY_MCP_TOOL_PREFIX = '__hermes_proxy_mcp__';
+
+const OUTBOUND_TOOL_NAME_PREFIX_REWRITES = [
+  ['mcp_', PROXY_MCP_TOOL_PREFIX],
+];
+
+const INBOUND_TOOL_NAME_PREFIX_REWRITES = [
+  [PROXY_MCP_TOOL_PREFIX, 'mcp_'],
+];
+
 const SANITIZED_SYSTEM_SUMMARY = {
   type: 'text',
   text: 'Be a direct, capable technical assistant. Match the user\'s language, prefer concrete action, use available tools when needed, and keep replies concise and grounded.',
@@ -52,6 +62,81 @@ function sanitizeSystemPayload(payload) {
   return nextPayload;
 }
 
+function rewriteToolNamePrefix(name, rules) {
+  if (typeof name !== 'string') {
+    return name;
+  }
+  for (const [fromPrefix, toPrefix] of rules) {
+    if (name.startsWith(fromPrefix)) {
+      return `${toPrefix}${name.slice(fromPrefix.length)}`;
+    }
+  }
+  return name;
+}
+
+function rewriteToolUseBlock(block, rules) {
+  if (!block || typeof block !== 'object') {
+    return block;
+  }
+  if (block.type !== 'tool_use' || typeof block.name !== 'string') {
+    return block;
+  }
+  return {
+    ...block,
+    name: rewriteToolNamePrefix(block.name, rules),
+  };
+}
+
+function rewriteMessageToolNames(message, rules) {
+  if (!message || typeof message !== 'object') {
+    return message;
+  }
+  if (!Array.isArray(message.content)) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((block) => rewriteToolUseBlock(block, rules)),
+  };
+}
+
+export function rewritePayloadToolNames(payload, rules) {
+  const nextPayload = { ...payload };
+
+  if (Array.isArray(nextPayload.tools)) {
+    nextPayload.tools = nextPayload.tools.map((tool) => {
+      if (!tool || typeof tool !== 'object' || typeof tool.name !== 'string') {
+        return tool;
+      }
+      return {
+        ...tool,
+        name: rewriteToolNamePrefix(tool.name, rules),
+      };
+    });
+  }
+
+  if (nextPayload.tool_choice && typeof nextPayload.tool_choice === 'object' && typeof nextPayload.tool_choice.name === 'string') {
+    nextPayload.tool_choice = {
+      ...nextPayload.tool_choice,
+      name: rewriteToolNamePrefix(nextPayload.tool_choice.name, rules),
+    };
+  }
+
+  if (Array.isArray(nextPayload.messages)) {
+    nextPayload.messages = nextPayload.messages.map((message) => rewriteMessageToolNames(message, rules));
+  }
+
+  if (Array.isArray(nextPayload.content)) {
+    nextPayload.content = nextPayload.content.map((block) => rewriteToolUseBlock(block, rules));
+  }
+
+  if (nextPayload.content_block && typeof nextPayload.content_block === 'object') {
+    nextPayload.content_block = rewriteToolUseBlock(nextPayload.content_block, rules);
+  }
+
+  return nextPayload;
+}
+
 function injectSystemPreamble(payload, systemPreamble) {
   const nextPayload = { ...payload };
   const currentSystem = nextPayload.system;
@@ -79,10 +164,17 @@ export function rewriteOutboundJson(rawBody, rewriteConfig) {
   const payload = JSON.parse(rawBody);
   const rewrittenPayload = applyRulesDeep(payload, rewriteConfig.outboundRules);
   const sanitizedPayload = sanitizeSystemPayload(rewrittenPayload);
-  return JSON.stringify(injectSystemPreamble(sanitizedPayload, rewriteConfig.systemPreamble));
+  const toolSafePayload = rewritePayloadToolNames(sanitizedPayload, OUTBOUND_TOOL_NAME_PREFIX_REWRITES);
+  return JSON.stringify(injectSystemPreamble(toolSafePayload, rewriteConfig.systemPreamble));
 }
 
 export function rewriteInboundJson(rawBody, rewriteConfig) {
   const payload = JSON.parse(rawBody);
-  return JSON.stringify(applyRulesDeep(payload, rewriteConfig.inboundRules));
+  const restoredToolNamesPayload = rewritePayloadToolNames(payload, INBOUND_TOOL_NAME_PREFIX_REWRITES);
+  return JSON.stringify(applyRulesDeep(restoredToolNamesPayload, rewriteConfig.inboundRules));
 }
+
+export const TOOL_NAME_REWRITE_RULES = {
+  outbound: OUTBOUND_TOOL_NAME_PREFIX_REWRITES,
+  inbound: INBOUND_TOOL_NAME_PREFIX_REWRITES,
+};

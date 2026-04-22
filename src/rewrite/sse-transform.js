@@ -1,6 +1,7 @@
 import { Transform } from 'node:stream';
 
 import { applyRulesDeep, applyRulesToString } from './rule-engine.js';
+import { rewritePayloadToolNames, TOOL_NAME_REWRITE_RULES } from './json-transform.js';
 
 function rewriteDataPayload(payload, inboundRules) {
   if (payload === '[DONE]') {
@@ -9,7 +10,8 @@ function rewriteDataPayload(payload, inboundRules) {
 
   try {
     const parsed = JSON.parse(payload);
-    return JSON.stringify(applyRulesDeep(parsed, inboundRules));
+    const restoredToolNamesPayload = rewritePayloadToolNames(parsed, TOOL_NAME_REWRITE_RULES.inbound);
+    return JSON.stringify(applyRulesDeep(restoredToolNamesPayload, inboundRules));
   } catch {
     return applyRulesToString(payload, inboundRules);
   }
