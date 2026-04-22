@@ -72,6 +72,65 @@ Main config sections:
 
 If `config.json` is missing, the service falls back to built-in defaults.
 
+## Client setup examples
+
+You can wire this proxy into your own agent/tooling manually, or just ask your agent to configure it for you.
+
+### OpenClaw
+
+Point OpenClaw's Anthropic provider at the proxy:
+
+```bash
+openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"' --strict-json
+```
+
+Important note for subscription-backed Anthropic usage:
+- OpenClaw's `tools.profile=full` can still trip Anthropic's `You're out of extra usage` rejection even when the proxy is working correctly.
+- On this VPS, the embedded OpenClaw agent worked reliably through the proxy with `tools.profile=minimal`.
+
+Set that like this:
+
+```bash
+openclaw config set tools.profile '"minimal"' --strict-json
+```
+
+Quick smoke test:
+
+```bash
+openclaw infer model run \
+  --local \
+  --model anthropic/claude-opus-4-6 \
+  --prompt 'reply with exactly: openclaw-proxy-ok' \
+  --json
+```
+
+Known-good result on this host with `tools.profile=minimal`:
+- request succeeds through the proxy
+- the Anthropic response comes back normally
+- no `extra usage` bounce
+
+If you need more than the minimal profile, add tools back gradually and re-test instead of jumping straight to the heaviest profile.
+
+### Hermes
+
+Hermes can use the proxy by setting Anthropic model aliases or the Anthropic base URL to `http://127.0.0.1:18801`.
+
+Example `~/.hermes/config.yaml` snippet:
+
+```yaml
+model_aliases:
+  opus:
+    model: claude-opus-4-6
+    provider: anthropic
+    base_url: http://127.0.0.1:18801
+  sonnet:
+    model: claude-sonnet-4-6
+    provider: anthropic
+    base_url: http://127.0.0.1:18801
+```
+
+Then switch to the model normally inside Hermes.
+
 ## Example request
 
 ```bash
