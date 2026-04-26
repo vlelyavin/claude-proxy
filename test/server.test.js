@@ -52,7 +52,7 @@ async function startServer(overrides = {}) {
         return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       },
     },
-    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    logger: overrides.logger ?? { info() {}, warn() {}, error() {}, debug() {} },
   });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -205,6 +205,178 @@ test('proxy converts upstream client failures into 502 responses', async (t) => 
   assert.equal(response.status, 502);
   const payload = await response.json();
   assert.match(payload.error.message, /boom/);
+});
+
+test('proxy logs upstream client failure cause and request metadata', async (t) => {
+  const errors = [];
+  const cause = new Error('socket hang up');
+  cause.code = 'ECONNRESET';
+  const harness = await startServer({
+    logger: {
+      info() {},
+      warn() {},
+      debug() {},
+      error(event, metadata) {
+        errors.push({ event, metadata });
+      },
+    },
+    upstreamClient: {
+      async request() {
+        throw new UpstreamClientError('Upstream request failed after 1 attempt(s)', { cause });
+      },
+    },
+  });
+  t.after(async () => {
+    await harness.close();
+  });
+
+  const requestBody = JSON.stringify({
+    model: 'claude-haiku-4-5',
+    max_tokens: 512,
+    stream: false,
+    messages: [{ role: 'user', content: 'OpenClaw' }],
+  });
+  const response = await fetch(`${harness.origin}/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: requestBody,
+  });
+
+  assert.equal(response.status, 502);
+  const logEntry = errors.find((entry) => entry.event === 'upstream.failed');
+  assert.ok(logEntry);
+  assert.equal(logEntry.metadata.error, 'Upstream request failed after 1 attempt(s)');
+  assert.equal(logEntry.metadata.causeName, 'Error');
+  assert.equal(logEntry.metadata.causeMessage, 'socket hang up');
+  assert.equal(logEntry.metadata.causeCode, 'ECONNRESET');
+  assert.deepEqual(logEntry.metadata.causeChain, [
+    { name: 'Error', message: 'socket hang up', code: 'ECONNRESET' },
+  ]);
+  assert.equal(logEntry.metadata.method, 'POST');
+  assert.equal(logEntry.metadata.urlPath, '/v1/messages');
+  assert.equal(logEntry.metadata.model, 'claude-haiku-4-5');
+  assert.equal(logEntry.metadata.stream, false);
+  assert.equal(logEntry.metadata.maxTokens, 512);
+  assert.ok(logEntry.metadata.upstreamBodyBytes >= Buffer.byteLength(requestBody));
+});
+
+test('proxy logs nested upstream failure causes', async (t) => {
+  const errors = [];
+  const rootCause = new Error('connect timeout');
+  rootCause.name = 'ConnectTimeoutError';
+  rootCause.code = 'UND_ERR_CONNECT_TIMEOUT';
+  const fetchError = new TypeError('fetch failed', { cause: rootCause });
+  const harness = await startServer({
+    logger: {
+      info() {},
+      warn() {},
+      debug() {},
+      error(event, metadata) {
+        errors.push({ event, metadata });
+      },
+    },
+    upstreamClient: {
+      async request() {
+        throw new UpstreamClientError('Upstream request failed after 1 attempt(s)', { cause: fetchError });
+      },
+    },
+  });
+  t.after(async () => {
+    await harness.close();
+  });
+
+  const response = await fetch(`${harness.origin}/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5', messages: [{ role: 'user', content: 'OpenClaw' }] }),
+  });
+
+  assert.equal(response.status, 502);
+  const logEntry = errors.find((entry) => entry.event === 'upstream.failed');
+  assert.ok(logEntry);
+  assert.equal(logEntry.metadata.causeName, 'TypeError');
+  assert.equal(logEntry.metadata.causeMessage, 'fetch failed');
+  assert.deepEqual(logEntry.metadata.causeChain, [
+    { name: 'TypeError', message: 'fetch failed' },
+    { name: 'ConnectTimeoutError', message: 'connect timeout', code: 'UND_ERR_CONNECT_TIMEOUT' },
+  ]);
+});
+
+test('proxy strips query strings and redacts bearer tokens from upstream failure logs', async (t) => {
+  const errors = [];
+  const cause = new Error('Authorization: Bearer secret-token-1234567890 failed');
+  const harness = await startServer({
+    logger: {
+      info() {},
+      warn() {},
+      debug() {},
+      error(event, metadata) {
+        errors.push({ event, metadata });
+      },
+    },
+    upstreamClient: {
+      async request() {
+        throw new UpstreamClientError('boom', { cause });
+      },
+    },
+  });
+  t.after(async () => {
+    await harness.close();
+  });
+
+  const response = await fetch(`${harness.origin}/v1/messages?api_key=secret-query-token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'OpenClaw' }] }),
+  });
+
+  assert.equal(response.status, 502);
+  const logEntry = errors.find((entry) => entry.event === 'upstream.failed');
+  assert.ok(logEntry);
+  assert.equal(logEntry.metadata.urlPath, '/v1/messages');
+  assert.doesNotMatch(JSON.stringify(logEntry.metadata), /secret-query-token/);
+  assert.doesNotMatch(JSON.stringify(logEntry.metadata), /secret-token-1234567890/);
+  assert.match(logEntry.metadata.causeMessage, /Bearer \[redacted\]/);
+});
+
+test('proxy sanitizes client-controlled request metadata in upstream failure logs', async (t) => {
+  const errors = [];
+  const harness = await startServer({
+    logger: {
+      info() {},
+      warn() {},
+      debug() {},
+      error(event, metadata) {
+        errors.push({ event, metadata });
+      },
+    },
+    upstreamClient: {
+      async request() {
+        throw new UpstreamClientError('boom');
+      },
+    },
+  });
+  t.after(async () => {
+    await harness.close();
+  });
+
+  const secretModel = `claude\nBearer model-secret-token api_key=model-secret-key ${'x'.repeat(80)}`;
+  const response = await fetch(`${harness.origin}/v1/messages/bearer/path-secret-token?ignored=query-secret`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: secretModel, messages: [{ role: 'user', content: 'OpenClaw' }] }),
+  });
+
+  assert.equal(response.status, 502);
+  const logEntry = errors.find((entry) => entry.event === 'upstream.failed');
+  assert.ok(logEntry);
+  const serialized = JSON.stringify(logEntry.metadata);
+  assert.doesNotMatch(serialized, /model-secret-token/);
+  assert.doesNotMatch(serialized, /model-secret-key/);
+  assert.doesNotMatch(serialized, /path-secret-token/);
+  assert.doesNotMatch(serialized, /query-secret/);
+  assert.ok(logEntry.metadata.model.length <= 120);
+  assert.equal(logEntry.metadata.urlPath, '/v1/messages/Bearer/[redacted]');
 });
 
 test('proxy converts upstream body-read timeouts into 502 responses without crashing', async (t) => {

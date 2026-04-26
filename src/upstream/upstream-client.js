@@ -28,7 +28,7 @@ function sanitizeHeaders(headers, token, requiredBetas) {
 
   for (const [key, value] of inputHeaders.entries()) {
     const normalized = key.toLowerCase();
-    if (['host', 'connection', 'content-length', 'authorization', 'x-api-key'].includes(normalized)) {
+    if (['host', 'connection', 'content-length', 'transfer-encoding', 'authorization', 'x-api-key'].includes(normalized)) {
       continue;
     }
     sanitized.set(key, value);

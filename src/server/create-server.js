@@ -78,6 +78,112 @@ function shouldRewriteJson(contentType, body = null) {
   return false;
 }
 
+function sanitizeLogString(value, maxChars = 240) {
+  return String(value ?? '')
+    .replace(/authorization\s*:\s*bearer\s+\S+/giu, 'Authorization: Bearer [redacted]')
+    .replace(/bearer\s+\S+/giu, 'Bearer [redacted]')
+    .replace(/(api[-_ ]?key|token|secret|password|passwd)\s*[:=]\s*\S+/giu, '$1=[redacted]')
+    .replace(/sk-[A-Za-z0-9_-]{8,}/gu, 'sk-[redacted]')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, maxChars) || undefined;
+}
+
+function safeRequestPath(url) {
+  let path;
+  try {
+    path = new URL(url, 'http://proxy.local').pathname;
+  } catch {
+    path = String(url ?? '').split('?')[0] || undefined;
+  }
+  if (!path) {
+    return undefined;
+  }
+  return sanitizeLogString(
+    path.replace(/\/bearer\/[^/]+/giu, '/Bearer/[redacted]'),
+    200,
+  );
+}
+
+function requestMetadata(request, body) {
+  const metadata = {
+    method: request.method,
+    urlPath: safeRequestPath(request.url),
+    upstreamBodyBytes: typeof body === 'string' ? Buffer.byteLength(body) : 0,
+  };
+
+  if (!body || !shouldRewriteJson(request.headers['content-type'], body)) {
+    return metadata;
+  }
+
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.model === 'string') {
+      metadata.model = sanitizeLogString(parsed.model, 120);
+    }
+    if (typeof parsed?.stream === 'boolean') {
+      metadata.stream = parsed.stream;
+    }
+    if (typeof parsed?.max_tokens === 'number') {
+      metadata.maxTokens = parsed.max_tokens;
+    }
+  } catch {
+    metadata.requestJsonParseable = false;
+  }
+
+  return metadata;
+}
+
+function errorCauseEntry(error) {
+  if (!error) {
+    return null;
+  }
+  const entry = {
+    name: sanitizeLogString(error.name, 80),
+    message: sanitizeLogString(error.message),
+  };
+  if (error.code) {
+    entry.code = sanitizeLogString(error.code, 80);
+  }
+  return entry;
+}
+
+function errorCauseChain(error, maxDepth = 4) {
+  const chain = [];
+  let current = error;
+  for (let depth = 0; current && depth < maxDepth; depth += 1) {
+    const entry = errorCauseEntry(current);
+    if (entry) {
+      chain.push(entry);
+    }
+    current = current.cause;
+  }
+  return chain;
+}
+
+function upstreamErrorMetadata(error, baseMetadata = {}) {
+  const cause = error?.cause;
+  const metadata = {
+    ...baseMetadata,
+    error: sanitizeLogString(error?.message),
+  };
+
+  if (cause) {
+    const causeChain = errorCauseChain(cause);
+    const firstCause = causeChain[0];
+    metadata.causeName = firstCause?.name;
+    metadata.causeMessage = firstCause?.message;
+    if (firstCause?.code) {
+      metadata.causeCode = firstCause.code;
+    }
+    if (causeChain.length > 0) {
+      metadata.causeChain = causeChain;
+    }
+  }
+
+  return metadata;
+}
+
 function rewriteInboundText(rawBody, contentType, rewriteConfig, logger) {
   if (!rawBody) {
     return rawBody;
@@ -99,6 +205,12 @@ export function createServer({ config, credentialStore, upstreamClient, logger =
   const startedAt = Date.now();
 
   return createHttpServer(async (request, response) => {
+    let upstreamRequestMetadata = {
+      method: request.method,
+      urlPath: safeRequestPath(request.url),
+      upstreamBodyBytes: 0,
+    };
+
     try {
       if (request.method === 'GET' && request.url === '/health') {
         const health = await buildHealthPayload({ config, credentialStore, startedAt });
@@ -119,6 +231,7 @@ export function createServer({ config, credentialStore, upstreamClient, logger =
           return;
         }
       }
+      upstreamRequestMetadata = requestMetadata(request, outboundBody);
 
       const upstreamResponse = await upstreamClient.request({
         method: request.method,
@@ -164,7 +277,7 @@ export function createServer({ config, credentialStore, upstreamClient, logger =
       }
 
       if (error instanceof UpstreamClientError) {
-        logger?.error?.('upstream.failed', { error: error.message });
+        logger?.error?.('upstream.failed', upstreamErrorMetadata(error, upstreamRequestMetadata));
         sendJson(response, 502, { error: { message: error.message } });
         return;
       }

@@ -56,6 +56,40 @@ test('UpstreamClient injects auth and required betas', async () => {
   assert.match(seenHeaders.get('anthropic-beta'), /context-management-2025-06-27/);
 });
 
+test('UpstreamClient strips hop-by-hop headers before fetch', async () => {
+  let seenHeaders;
+  const client = new UpstreamClient({
+    config: createConfig(),
+    credentialStore,
+    fetchImpl: async (_url, init) => {
+      seenHeaders = new Headers(init.headers);
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    sleep: async () => {},
+  });
+
+  await client.request({
+    method: 'POST',
+    urlPath: '/v1/messages',
+    headers: {
+      host: 'proxy.local',
+      connection: 'keep-alive',
+      'content-length': '123',
+      'transfer-encoding': 'chunked',
+      'x-api-key': 'client-key',
+      authorization: 'Bearer client-token',
+    },
+    body: '{"ok":true}',
+  });
+
+  assert.equal(seenHeaders.has('host'), false);
+  assert.equal(seenHeaders.has('connection'), false);
+  assert.equal(seenHeaders.has('content-length'), false);
+  assert.equal(seenHeaders.has('transfer-encoding'), false);
+  assert.equal(seenHeaders.get('authorization'), 'Bearer oauth-token');
+  assert.equal(seenHeaders.has('x-api-key'), false);
+});
+
 test('UpstreamClient retries retryable statuses and eventually succeeds', async () => {
   let attempts = 0;
   const sleeps = [];
