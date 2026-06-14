@@ -1,41 +1,27 @@
-# Claude Proxy
+# claude-proxy
 
-Claude Proxy is a small local relay that lets Claude-compatible tooling use your Claude subscription through local auth.
+local relay that routes claude api calls through your subscription auth. bypasses enforced extra usage billing so you can use tools like hermes/openclaw on a regular claude subscription.
 
-I built it for OpenClaw and similar local workflows where I wanted a real service instead of a brittle one-file proxy script.
+## what it does
 
-What it does:
-- loads local Claude OAuth credentials from disk on each request
-- forwards Anthropic-compatible traffic upstream with controlled headers
-- rewrites JSON requests and responses structurally instead of raw body splicing
-- rewrites streaming SSE output line-by-line without breaking framing
+- loads local claude oauth credentials from disk on each request
+- forwards anthropic-compatible traffic upstream with controlled headers
+- rewrites json requests and sse responses structurally (not raw splicing)
 - retries transient upstream failures with backoff
-- exposes `/health` for runtime and credential visibility
-- runs with zero runtime dependencies
+- rewrites tool names on the wire for subscription compatibility
+- zero runtime dependencies
 
-## What this repo is
+## what this is not
 
-A local HTTP relay for people who want to plug local Claude auth into their own tooling and keep the integration inspectable.
-
-## What this repo is not
-
-- not an official Anthropic project
+- not an official anthropic project
 - not a hosted service
 - not a credential bundle
-- not a replacement for secure local credential handling
 
-Bring your own local Claude credentials. No tokens, keys, or private config are included in this repository.
+bring your own local claude credentials. nothing private is included in this repo.
 
-## Requirements
+## setup
 
-- Node.js 24+
-- a local Claude credential file, usually one of:
-  - `~/.claude/.credentials.json`
-  - `~/.claude/credentials.json`
-
-## Fast start
-
-There are no runtime dependencies, so there is no `npm install` step.
+requires node.js 24+ and a local claude credential file (`~/.claude/.credentials.json`).
 
 ```bash
 git clone git@github.com:vlelyavin/claude-proxy.git
@@ -43,95 +29,41 @@ cd claude-proxy
 node src/cli.js
 ```
 
-Default behavior:
-- listens on `127.0.0.1:18801`
-- auto-loads local Claude credentials from the default search paths
-- uses built-in retry, timeout, and health defaults
-
-Check that it started:
+that's it. no npm install needed. listens on `127.0.0.1:18801` by default.
 
 ```bash
 curl -sS http://127.0.0.1:18801/health
 ```
 
-## Optional config
+## config
 
-If you want to change the port, rewrite rules, or credential path, copy the example config and edit it:
+copy the example if you want to change defaults:
 
 ```bash
 cp config.example.json config.json
 node src/cli.js --config ./config.json
 ```
 
-Main config sections:
-- `listen` - host and port
-- `upstream` - base URL, timeout, retries, required betas
-- `credentials` - explicit credential path and fallback search paths
-- `rewrite` - system preamble plus outbound and inbound replacement rules
-- `service` - body size limit and log level
+covers listen host/port, upstream timeout/retries, credential paths, rewrite rules, body size limits.
 
-If `config.json` is missing, the service falls back to built-in defaults.
-
-## Client setup examples
-
-You can wire this proxy into your own agent/tooling manually, or just ask your agent to configure it for you.
-
-### OpenClaw
-
-Point OpenClaw's Anthropic provider at the proxy:
-
-```bash
-openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"' --strict-json
-```
-
-Important note for subscription-backed Anthropic usage:
-- The proxy now rewrites a small set of tool names on the wire for Claude subscription compatibility and restores the original names on the way back.
-- On this VPS, OpenClaw's embedded agent was verified end-to-end through the proxy with `tools.profile=full` after that compatibility rewrite.
-
-If you previously forced the minimal profile as a workaround, switch back like this:
-
-```bash
-openclaw config set tools.profile '"full"' --strict-json
-```
-
-Quick smoke test:
-
-```bash
-openclaw infer model run \
-  --local \
-  --model anthropic/claude-opus-4-6 \
-  --prompt 'reply with exactly: openclaw-proxy-ok' \
-  --json
-```
-
-Known-good result on this host with `tools.profile=full`:
-- request succeeds through the proxy
-- the Anthropic response comes back normally
-- no `extra usage` bounce
-
-If you still hit an `extra usage` bounce in a different client build, update to the latest proxy version first so the compatibility rewrite is in place before you start cutting tools.
-
-### Hermes
-
-Hermes can use the proxy by setting Anthropic model aliases or the Anthropic base URL to `http://127.0.0.1:18801`.
-
-Example `~/.hermes/config.yaml` snippet:
+## usage with hermes
 
 ```yaml
+# ~/.hermes/config.yaml
 model_aliases:
   opus:
     model: claude-opus-4-6
     provider: anthropic
     base_url: http://127.0.0.1:18801
-  sonnet:
-    model: claude-sonnet-4-6
-    provider: anthropic
-    base_url: http://127.0.0.1:18801
 ```
 
-Then switch to the model normally inside Hermes.
+## usage with openclaw
 
-## Example request
+```bash
+openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"' --strict-json
+```
+
+## example request
 
 ```bash
 curl -sS http://127.0.0.1:18801/v1/messages \
@@ -146,59 +78,33 @@ curl -sS http://127.0.0.1:18801/v1/messages \
   }'
 ```
 
-## Run tests
-
-```bash
-npm test
-```
-
-## One-command systemd install
-
-If you want a boot-persistent localhost service on Linux:
+## systemd
 
 ```bash
 sudo ./scripts/install-systemd.sh
 ```
 
-That writes the unit, reloads systemd, enables the service, and starts it.
+one command - writes the unit, enables, starts. see `docs/systemd.md`.
 
-More detail: `docs/systemd.md`
+## structure
 
-## Repository layout
+```
+src/
+  config/         # defaults, validation, loader
+  credentials/    # claude credential lookup
+  rewrite/        # outbound/inbound json+sse transforms
+  upstream/       # retry-aware upstream client
+  server/         # http surface + /health
+scripts/          # systemd installer
+test/             # config, rewrite, credentials, transport tests
+```
 
-- `src/config/*` - defaults, validation, config loader
-- `src/credentials/*` - Claude credential lookup and session metadata
-- `src/rewrite/*` - outbound and inbound JSON/SSE transforms
-- `src/upstream/*` - timeout and retry-aware upstream client
-- `src/server/*` - HTTP surface and `/health`
-- `scripts/install-systemd.sh` - one-command systemd installer
-- `test/*` - config, rewrite, credentials, transport, and server tests
-- `docs/architecture.md` - component overview
-- `docs/systemd.md` - service deployment notes
+## security
 
-## Notes on behavior
+- don't commit config.json or credential files
+- keep bound to localhost
+- rotate credentials if exposed
 
-- outbound JSON bodies are rewritten structurally
-- inbound JSON responses are reverse-mapped structurally
-- SSE responses are rewritten line-by-line while preserving event framing
-- credentials are reloaded on demand, so local auth refreshes do not require a service restart
-- request body size is capped by `service.maxBodyBytes`
-- retry behavior is controlled by `upstream.maxAttempts`, `retryBaseDelayMs`, `retryMaxDelayMs`, and `retryOnStatuses`
-
-## Security notes
-
-- do not commit `config.json`
-- do not commit credential files
-- keep the service bound to localhost unless you intentionally want remote access
-- rotate credentials immediately if you think they were exposed
-- review rewrite rules and logs before publishing modified versions
-
-See `SECURITY.md` for disclosure guidance.
-
-## Running under systemd
-
-See `docs/systemd.md` for the example unit, logs, and verification commands.
-
-## License
+## license
 
 MIT
