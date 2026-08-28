@@ -1,82 +1,99 @@
 # claude-proxy
 
-local relay that routes claude api calls through your subscription auth. bypasses enforced extra usage billing so you can use tools like hermes/openclaw on a regular claude subscription.
+[README на русском](README.ru.md)
+
+you have a claude subscription. your tools want an api key. this sits in the middle: a local relay that pushes anthropic api calls through your subscription oauth, so hermes / openclaw / curl ride on the sub instead of a per-token bill.
 
 ## what it does
 
-- loads local claude oauth credentials from disk on each request
-- forwards anthropic-compatible traffic upstream with controlled headers
-- rewrites json requests and sse responses structurally (not raw splicing)
-- retries transient upstream failures with backoff
-- rewrites tool names on the wire for subscription compatibility
-- zero runtime dependencies
+- reads your local claude oauth from disk on every request — token rotation needs no restart
+- forwards to api.anthropic.com with the headers the subscription expects
+- rewrites json and sse structurally, not by splicing strings
+- retries 429/5xx with backoff
+- renames tools the subscription path doesn't know (mcp, memory tools)
+- zero npm dependencies. node stdlib, nothing else.
 
-## what this is not
+## what it is not
 
-- not an official anthropic project
-- not a hosted service
-- not a credential bundle
+- not an anthropic product, not affiliated with them
+- not a hosted service — runs on your machine, your creds
+- not a cred bundle — nothing private ships in this repo
 
-bring your own local claude credentials. nothing private is included in this repo.
+## straight talk
 
-## setup
+it uses subscription oauth outside the official client. that's a gray zone in anthropic's tos. hammer it and you can lose the subscription. your call.
 
-requires node.js 24+ and a local claude credential file (`~/.claude/.credentials.json`).
+## requirements
+
+- node 24+
+- `~/.claude/.credentials.json` — appears after you log in via Claude Code. no file, no proxy.
+
+## run
 
 ```bash
-git clone git@github.com:vlelyavin/claude-proxy.git
+git clone https://github.com/vlelyavin/claude-proxy.git
 cd claude-proxy
 node src/cli.js
 ```
 
-that's it. no npm install needed. listens on `127.0.0.1:18801` by default.
+no `npm install`. listens on `127.0.0.1:18801`.
 
 ```bash
 curl -sS http://127.0.0.1:18801/health
 ```
 
+health shows subscription type and token expiry. if it says `token_expired` — the proxy is fine, the sub isn't.
+
+use full model ids (`claude-opus-4-6`). `opus` alone 404s.
+
 ## config
 
-copy the example if you want to change defaults:
+optional. defaults cover the common case.
 
 ```bash
 cp config.example.json config.json
 node src/cli.js --config ./config.json
 ```
 
-covers listen host/port, upstream timeout/retries, credential paths, rewrite rules, body size limits.
+host/port, upstream timeouts and retries, credential paths, rewrite rules, body size limit.
 
-## usage with hermes
+## hermes
+
+the trap: hermes can't auto-detect the wire format on a loopback url. without `api_mode: anthropic_messages` every call goes out as chat_completions and 404s.
 
 ```yaml
 # ~/.hermes/config.yaml
+custom_providers:
+  - name: anthropic_proxy
+    api_key: none
+    api_mode: anthropic_messages
+    base_url: http://127.0.0.1:18801
+    discover_models: false
+    model: claude-opus-4-6
+
 model_aliases:
   opus:
     model: claude-opus-4-6
-    provider: anthropic
-    base_url: http://127.0.0.1:18801
+    provider: custom:anthropic_proxy
+    api_mode: anthropic_messages
 ```
 
-## usage with openclaw
+## openclaw
 
 ```bash
 openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"' --strict-json
 ```
 
-## example request
+## test it
 
 ```bash
 curl -sS http://127.0.0.1:18801/v1/messages \
   -H 'content-type: application/json' \
   -H 'anthropic-version: 2023-06-01' \
-  --data '{
-    "model": "claude-opus-4-6",
-    "max_tokens": 32,
-    "messages": [
-      {"role": "user", "content": "reply with exactly: pong"}
-    ]
-  }'
+  --data '{"model":"claude-opus-4-6","max_tokens":32,"messages":[{"role":"user","content":"reply with exactly: pong"}]}'
 ```
+
+a `pong` means the whole path works.
 
 ## systemd
 
@@ -84,26 +101,26 @@ curl -sS http://127.0.0.1:18801/v1/messages \
 sudo ./scripts/install-systemd.sh
 ```
 
-one command - writes the unit, enables, starts. see `docs/systemd.md`.
+one command — writes the unit, enables, starts. manual path in `docs/systemd.md`.
 
 ## structure
 
 ```
 src/
-  config/         # defaults, validation, loader
-  credentials/    # claude credential lookup
-  rewrite/        # outbound/inbound json+sse transforms
-  upstream/       # retry-aware upstream client
-  server/         # http surface + /health
-scripts/          # systemd installer
-test/             # config, rewrite, credentials, transport tests
+  config/         defaults, validation, loader
+  credentials/    claude cred lookup
+  rewrite/        json + sse transforms, both directions
+  upstream/       retry-aware upstream client
+  server/         http surface + /health
+scripts/          systemd installer
+test/             36 tests, no network needed
 ```
 
 ## security
 
-- don't commit config.json or credential files
-- keep bound to localhost
-- rotate credentials if exposed
+- localhost only, unless you know exactly why not
+- never commit `config.json` or credential files
+- leaked creds = rotate immediately
 
 ## license
 
