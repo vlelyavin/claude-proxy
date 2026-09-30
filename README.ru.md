@@ -44,7 +44,9 @@ curl -sS http://127.0.0.1:18801/health
 
 health показывает тип подписки и экспирацию токена. если пишет `token_expired` — прокси живой, подписка нет.
 
-модели — полными id (`claude-opus-4-6`). просто `opus` ловит 404.
+модели — полными id (`claude-opus-5-5`). просто `opus` ловит 404.
+
+anthropic гейтит самые свежие модели по версии claude code, которую прокси показывает в биллинг-заголовке. если модель отвечает `claude_code_version_too_old`, подними `cc_version` в system preamble (дефолты или `config.json`) до минимума из текста ошибки и перезапусти прокси. id моделей — в тире-форме (`claude-opus-5-5`), не через точку.
 
 ## конфиг
 
@@ -69,11 +71,11 @@ custom_providers:
     api_mode: anthropic_messages
     base_url: http://127.0.0.1:18801
     discover_models: false
-    model: claude-opus-4-6
+    model: claude-opus-5-5
 
 model_aliases:
   opus:
-    model: claude-opus-4-6
+    model: claude-opus-5-5
     provider: custom:anthropic_proxy
     api_mode: anthropic_messages
 ```
@@ -90,7 +92,7 @@ openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"
 curl -sS http://127.0.0.1:18801/v1/messages \
   -H 'content-type: application/json' \
   -H 'anthropic-version: 2023-06-01' \
-  --data '{"model":"claude-opus-4-6","max_tokens":32,"messages":[{"role":"user","content":"reply with exactly: pong"}]}'
+  --data '{"model":"claude-opus-5-5","max_tokens":32,"messages":[{"role":"user","content":"reply with exactly: pong"}]}'
 ```
 
 `pong` = весь путь работает.

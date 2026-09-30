@@ -44,7 +44,9 @@ curl -sS http://127.0.0.1:18801/health
 
 health shows subscription type and token expiry. if it says `token_expired` — the proxy is fine, the sub isn't.
 
-use full model ids (`claude-opus-4-6`). `opus` alone 404s.
+use full model ids (`claude-opus-5-5`). `opus` alone 404s.
+
+anthropic gates the newest models by the claude code version the proxy advertises in its billing header. if a model answers `claude_code_version_too_old`, raise `cc_version` in the system preamble (defaults or `config.json`) to the minimum named in the error text and restart. model ids are dash-form (`claude-opus-5-5`), not dot-form.
 
 ## config
 
@@ -69,11 +71,11 @@ custom_providers:
     api_mode: anthropic_messages
     base_url: http://127.0.0.1:18801
     discover_models: false
-    model: claude-opus-4-6
+    model: claude-opus-5-5
 
 model_aliases:
   opus:
-    model: claude-opus-4-6
+    model: claude-opus-5-5
     provider: custom:anthropic_proxy
     api_mode: anthropic_messages
 ```
@@ -90,7 +92,7 @@ openclaw config set models.providers.anthropic.baseUrl '"http://127.0.0.1:18801"
 curl -sS http://127.0.0.1:18801/v1/messages \
   -H 'content-type: application/json' \
   -H 'anthropic-version: 2023-06-01' \
-  --data '{"model":"claude-opus-4-6","max_tokens":32,"messages":[{"role":"user","content":"reply with exactly: pong"}]}'
+  --data '{"model":"claude-opus-5-5","max_tokens":32,"messages":[{"role":"user","content":"reply with exactly: pong"}]}'
 ```
 
 a `pong` means the whole path works.

@@ -9,7 +9,7 @@ export const DEFAULT_REQUIRED_BETAS = [
 
 export const DEFAULT_SYSTEM_PREAMBLE = {
   type: 'text',
-  text: 'x-anthropic-billing-header: cc_version=2.1.80.a46; cc_entrypoint=sdk-cli; cch=00000;',
+  text: 'x-anthropic-billing-header: cc_version=2.1.281.a46; cc_entrypoint=sdk-cli; cch=00000;',
 };
 
 export const DEFAULT_CONFIG = {

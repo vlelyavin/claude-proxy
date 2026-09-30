@@ -1,6 +1,6 @@
 {
   "name": "claude-proxy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local relay that lets Claude-compatible tooling use Claude subscription auth",
   "type": "module",
   "private": true,
