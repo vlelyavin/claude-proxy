@@ -4,27 +4,27 @@
 
 This project is intended to run as a local service under your control.
 
-Basic safety expectations:
-- keep it bound to localhost unless you have a strong reason not to
-- do not commit `config.json`
-- do not commit credential files
-- review logs and rewrite rules before publishing customizations
-- rotate credentials immediately if you suspect exposure
+Basic security guidelines:
+- Keep the service bound to `localhost` unless you have a specific reason not to.
+- Do not commit `config.json`.
+- Do not commit credential files.
+- Review logs and rewrite rules before sharing or publishing customizations.
+- Rotate credentials immediately if you suspect they have been compromised.
 
 ## Reporting a vulnerability
 
-If you find a security issue in the code or docs, please report it privately to the maintainer before posting full public details.
+If you discover a security issue in the code or documentation, please report it privately to the maintainer before disclosing details publicly.
 
-A good report includes:
-- affected file or component
-- impact
-- reproduction steps
-- suggested fix if you have one
+A helpful report includes:
+- Affected file or component
+- Potential impact
+- Steps to reproduce
+- Suggested fix, if you have one
 
 ## Sensitive files to keep local
 
-Examples of files that should stay out of version control:
+Files that should never be committed to version control include:
 - `config.json`
-- local smoke-test configs
-- credential files under `~/.claude/`
-- internal session notes or incident reports
+- Local smoke-test configs
+- Credential files under `~/.claude/`
+- Internal session notes or incident reports

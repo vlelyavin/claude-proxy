@@ -1,28 +1,28 @@
 # systemd deployment
 
-This document shows two ways to run Claude Proxy as a boot-persistent local service.
+This guide covers two ways to set up Claude Proxy as a persistent systemd service.
 
 ## Fast path
 
-From the repo root:
+Run the installation script from the repository root:
 
 ```bash
 sudo ./scripts/install-systemd.sh
 ```
 
-That script:
-- writes `/etc/systemd/system/claude-proxy.service`
-- reloads systemd
-- enables the service
-- starts it immediately
+The script will:
+- generate `/etc/systemd/system/claude-proxy.service`
+- reload the systemd daemon
+- enable the service on boot
+- start the service immediately
 
 Default assumptions:
-- repo lives where you cloned it
-- node is already on your `PATH`
-- service should use `config.json`
-- service user and home are auto-detected from the invoking user when possible
+- the repository stays where you cloned it
+- Node.js is available on your `PATH`
+- the service will read `config.json`
+- the service user and home directory are inferred from the invoking user whenever possible
 
-If you want to override those, pass flags like:
+To override these defaults, pass the appropriate flags:
 
 ```bash
 sudo ./scripts/install-systemd.sh \
@@ -34,7 +34,7 @@ sudo ./scripts/install-systemd.sh \
 
 ## Manual unit
 
-Adjust the user, home directory, and working directory for your environment.
+Adjust the user, home directory, and working directory to match your environment:
 
 ```ini
 [Unit]
@@ -100,7 +100,7 @@ sudo systemctl restart claude-proxy
 
 ## Notes
 
-- keep the service bound to localhost unless you intentionally want remote access
-- make sure the configured user can read the Claude credential file referenced by `config.json`
-- if you run the service as root, set `User=root` and `Environment=HOME=/root`
-- if you do not need custom settings, you can skip `config.json` entirely and start with built-in defaults instead
+- Keep the service bound to localhost unless you explicitly require remote access.
+- Ensure the configured user has read permissions for the Claude credentials file referenced in `config.json`.
+- If you run the service as root, set `User=root` and `Environment=HOME=/root`.
+- If you don't need custom configuration, you can omit `config.json` entirely and run with the built-in defaults.
